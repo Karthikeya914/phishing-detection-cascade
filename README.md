@@ -43,13 +43,15 @@ This project investigates and implements **Strategy C (Security-First Confidence
 1. **Compute Efficiency:** The majority of standard emails (clear phishing or highly confident legitimate messages) are classified immediately by lightweight Logistic Regression.
 2. **Targeted Escalation:** Only emails where Logistic Regression predicts *legitimate* with confidence below the safety threshold (e.g., `< 0.95` or `< 0.99`) are escalated to **DistilBERT** for deep context analysis.
 3. **Quarantine Logging:** When an email is flagged as phishing (either by LR or DistilBERT), it is routed to a JSON-based quarantine log (`quarantine_<timestamp>.json`) containing the email content, model used, confidence score, and timestamp.
-4. **Prototyped REST API:** Wrapped in **FastAPI** with Pydantic request validation inside the notebook for easy client querying.
+4. **Prototyped REST API:** Defined and tested inside the notebook using **FastAPI** and `TestClient` with Pydantic request validation.
 
 ---
 
 ## 📊 Recorded Experimental Results
 
 ### Individual Model Benchmark (Held-out Test Set)
+
+The three models were evaluated independently on the held-out test split (20,304 samples):
 
 | Model | Accuracy | Precision | Recall | F1 Score |
 |---|---|---|---|---|
@@ -59,7 +61,7 @@ This project investigates and implements **Strategy C (Security-First Confidence
 
 ### Cascade Evaluation Performance (Evaluation Split: 20,300 samples)
 
-The cascade strategies were developed and compared on the evaluation split:
+The cascade routing strategies were developed, tuned, and evaluated on the **evaluation split** (20,300 samples):
 
 - **Strategy C (Security-First Cascade, Threshold = 0.99):**
   - **DistilBERT Escalation Rate:** 27.34% of evaluation emails
@@ -72,7 +74,8 @@ The cascade strategies were developed and compared on the evaluation split:
 - **Strategy E (Asymmetric FN-Optimized Cascade):**
   - **DistilBERT Escalation Rate:** 37.62% | **Accuracy:** 99.47% | **Recall:** 99.35%
 
-*(Note: The holdout test evaluation for the combined cascade requires pre-computed test prediction probabilities from both models, detailed in notebook Section 7.5).*
+> **Note on Holdout-Test Cascade Performance:**  
+> While individual models were tested on the holdout test set (shown above), the combined cascade strategies (C, D, E) were evaluated exclusively on the evaluation split. The notebook includes the holdout test cell for Strategy C (Section 7.5), which requires computing Logistic Regression test prediction probabilities before running.
 
 ---
 
@@ -87,15 +90,26 @@ The cascade strategies were developed and compared on the evaluation split:
    - Embedding + LSTM + Dropout + Dense Sigmoid architecture.
 5. **Fine-Tuned DistilBERT:**
    - Pretrained `distilbert-base-uncased` fine-tuned for sequence classification using HuggingFace `Trainer` on GPU.
-6. **Cascade & Policy Optimization:** Comparing cascade strategies (Strategy C, D, E) to balance recall against transformer compute.
-7. **Simulated Quarantine & FastAPI Endpoint:** Defining the `quarantine_email` archiving function and exposing `/predict` via FastAPI.
+6. **Cascade & Policy Optimization:** Comparing cascade strategies (Strategy C, D, E) on the evaluation split to balance recall against transformer compute.
+7. **Simulated Quarantine & FastAPI Prototype:** Defining the `quarantine_email` archiving function and prototyping a `/predict` endpoint via FastAPI.
 
 ---
 
-## 🚀 Environment & Setup
+## 🚀 Environment, Setup & Artifact Requirements
 
-> **Note on Environment & Artifacts:**  
-> This project was developed and executed in **Google Colab** with GPU acceleration. Large model weights (such as the fine-tuned DistilBERT directory and Keras LSTM `.keras` files) and intermediate tokenized datasets are stored on Google Drive and are **not tracked in this Git repository**.
+> **Development Environment Notice:**  
+> This project was developed and executed in **Google Colab** with GPU acceleration. Large model weights, tokenized datasets, and intermediate arrays are stored externally on Google Drive and are **not tracked in this Git repository**.
+
+### Required Google Drive Artifacts for End-to-End Inference
+
+To execute the final inference pipeline and FastAPI prototype without retraining, the following saved artifacts are expected at `/content/drive/MyDrive/`:
+
+1. `tfidf_vectorizer.pkl` — Serialized Scikit-learn `TfidfVectorizer` (for transforming raw email strings).
+2. `phishing_lr_model.pkl` — Serialized trained `LogisticRegression` model.
+3. `phishing_distilbert/` — HuggingFace directory containing `model.safetensors`/`pytorch_model.bin`, `config.json`, and tokenizer files (`tokenizer_config.json`, `vocab.txt`).
+4. `phishing_quarantine/` — Directory where quarantined email JSON records are written.
+
+*(Training artifacts such as `X_train_tfidf.npz`, `X_train_lstm.npy`, `phishing_lstm.keras`, and tokenized HuggingFace datasets were also used during the training stages).*
 
 ### 1. Clone the Repository
 ```bash
@@ -118,9 +132,9 @@ jupyter notebook Phishing_Detection_Cascade.ipynb
 
 ---
 
-## ⚡ FastAPI Inference Prototype
+## ⚡ FastAPI Inference Prototype (In-Notebook)
 
-The notebook defines and tests a FastAPI service prototype:
+The FastAPI application is implemented directly inside the notebook (Sections 10) and tested in-process using `starlette.testclient.TestClient`:
 
 ```python
 from fastapi import FastAPI
