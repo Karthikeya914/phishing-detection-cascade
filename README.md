@@ -3,17 +3,16 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![HuggingFace](https://img.shields.io/badge/%F0%9F%A4%97-Transformers-orange)](https://huggingface.co/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An end-to-end, production-grade email security system combining **TF-IDF + Logistic Regression**, **LSTM**, and **fine-tuned DistilBERT** in an asymmetric, confidence-based cascade with automated quarantine and REST API inference.
+An applied machine learning system combining **TF-IDF + Logistic Regression**, **LSTM**, and **fine-tuned DistilBERT** in an asymmetric, confidence-based cascade with automated quarantine and REST API inference.
 
 ---
 
 ## 📌 Architecture & Design Strategy
 
-In email security, **False Negatives (letting a phishing email slip through) carry far greater consequences than False Positives**. Furthermore, deploying heavy transformer models for every inbound email is computationally expensive and slow.
+In email security, **False Negatives (letting a phishing email slip into an inbox) carry severe security consequences compared to False Positives**. Furthermore, running deep transformer inference on every incoming email is computationally expensive and introduces unnecessary latency.
 
-This project implements **Strategy C (Security-First Confidence Cascade)**:
+This project investigates and implements **Strategy C (Security-First Confidence Cascade)**:
 
 ```
                             [ Inbound Email ]
@@ -26,45 +25,77 @@ This project implements **Strategy C (Security-First Confidence Cascade)**:
         Predicted Phishing                      Predicted Legitimate
                │                                         │
                ▼                                ┌────────┴────────┐
-      [ Final: Phishing ]                       │                 │
-                                       Confidence ≥ 95%    Confidence < 95%
+        [ Action: QUARANTINE ]                  │                 │
+                                       Confidence ≥ Threshold   Confidence < Threshold
                                                 │                 │
                                                 ▼                 ▼
-                                       [ Final: Legitimate ]  [ Escalate to DistilBERT ]
+                                       [ Action: DELIVER ]   [ Escalate to DistilBERT ]
                                                                   │
                                                         ┌─────────┴─────────┐
                                                         │                   │
-                                                  High Conf.           Low Conf. / Ambiguous
+                                               Predicted Phishing   Predicted Legitimate
                                                         │                   │
                                                         ▼                   ▼
-                                                [ Final Decision ]   [ Quarantine Log (.json) ]
+                                              [ Action: QUARANTINE ]  [ Action: DELIVER ]
 ```
 
-### Key Highlights:
-1. **Low Latency & Cost Efficiency:** Over 85–90% of emails are resolved instantly by Logistic Regression at microsecond scale.
-2. **Deep Semantic Understanding:** High-risk, ambiguous emails that LR flags as "legitimate" with low confidence are escalated to a fine-tuned **DistilBERT** transformer.
-3. **Automated Quarantine Mechanism:** Boundary/uncertain predictions are safely archived to a JSON audit trail rather than making hard false-negative assumptions.
-4. **Deployable REST API:** Wrapped in **FastAPI** with Pydantic schema validation for seamless integration into email gateways.
+### Key Mechanisms:
+1. **Compute Efficiency:** The majority of standard emails (clear phishing or highly confident legitimate messages) are classified immediately by lightweight Logistic Regression.
+2. **Targeted Escalation:** Only emails where Logistic Regression predicts *legitimate* with confidence below the safety threshold (e.g., `< 0.95` or `< 0.99`) are escalated to **DistilBERT** for deep context analysis.
+3. **Quarantine Logging:** When an email is flagged as phishing (either by LR or DistilBERT), it is routed to a JSON-based quarantine log (`quarantine_<timestamp>.json`) containing the email content, model used, confidence score, and timestamp.
+4. **Prototyped REST API:** Wrapped in **FastAPI** with Pydantic request validation inside the notebook for easy client querying.
 
 ---
 
-## 📊 Pipeline & Modeling Workflow
+## 📊 Recorded Experimental Results
 
-1. **Exploratory Data Analysis (EDA):** Text length distributions, vocabulary contrast analysis, sender domain profiling, and URL presence patterns.
+### Individual Model Benchmark (Held-out Test Set)
+
+| Model | Accuracy | Precision | Recall | F1 Score |
+|---|---|---|---|---|
+| **TF-IDF + Logistic Regression** | 98.40% | 98.02% | 98.55% | 0.9828 |
+| **LSTM (from scratch)** | 97.64% | 97.68% | 97.23% | 0.9746 |
+| **DistilBERT (fine-tuned)** | **99.55%** | **99.56%** | **99.46%** | **0.9951** |
+
+### Cascade Evaluation Performance (Evaluation Split: 20,300 samples)
+
+The cascade strategies were developed and compared on the evaluation split:
+
+- **Strategy C (Security-First Cascade, Threshold = 0.99):**
+  - **DistilBERT Escalation Rate:** 27.34% of evaluation emails
+  - **Accuracy:** 98.85%
+  - **Precision:** 97.85%
+  - **Recall:** 99.72% *(Minimizing false negatives to just 26 out of 9,432 phishing emails)*
+  - **F1 Score:** 0.9878
+- **Strategy D (Selective Second Opinion, Threshold = 0.99):**
+  - **DistilBERT Escalation Rate:** 54.24% | **Accuracy:** 99.48% | **Recall:** 99.31%
+- **Strategy E (Asymmetric FN-Optimized Cascade):**
+  - **DistilBERT Escalation Rate:** 37.62% | **Accuracy:** 99.47% | **Recall:** 99.35%
+
+*(Note: The holdout test evaluation for the combined cascade requires pre-computed test prediction probabilities from both models, detailed in notebook Section 7.5).*
+
+---
+
+## 🔬 Pipeline & Modeling Workflow
+
+1. **Exploratory Data Analysis (EDA):** Text length distributions, vocabulary contrast analysis, sender domain profiling, and URL presence patterns across phishing vs. legitimate samples.
 2. **Data Cleaning & Preprocessing:** Null handling, duplicate removal, feature concatenation (`subject` + `sender` + `text` → `email`).
-3. **Model 1: TF-IDF + Logistic Regression**
-   - 50,000 n-gram features (unigrams + bigrams), balanced class weighting.
-4. **Model 2: LSTM Sequence Classifier**
-   - 20,000-word vocabulary, sequence length capped at 1024 tokens.
+3. **TF-IDF + Logistic Regression:**
+   - 50,000 n-gram features (unigrams + bigrams), class-weighted logistic regression.
+4. **LSTM Sequence Classifier:**
+   - 20,000-word vocabulary, sequence length padded/truncated to 1,024 tokens.
    - Embedding + LSTM + Dropout + Dense Sigmoid architecture.
-5. **Model 3: Fine-Tuned DistilBERT**
-   - Pretrained `distilbert-base-uncased` fine-tuned for sequence classification using HuggingFace `Trainer`.
-6. **Cascade & Policy Optimization:** Comparing cascade strategies (Strategy C, D, E) to maximize recall while controlling transformer compute.
-7. **Production API:** FastAPI service exposing `/predict` endpoint returning predictions, active model used, confidence levels, and quarantine locations.
+5. **Fine-Tuned DistilBERT:**
+   - Pretrained `distilbert-base-uncased` fine-tuned for sequence classification using HuggingFace `Trainer` on GPU.
+6. **Cascade & Policy Optimization:** Comparing cascade strategies (Strategy C, D, E) to balance recall against transformer compute.
+7. **Simulated Quarantine & FastAPI Endpoint:** Defining the `quarantine_email` archiving function and exposing `/predict` via FastAPI.
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Environment & Setup
+
+> **Note on Environment & Artifacts:**  
+> This project was developed and executed in **Google Colab** with GPU acceleration. Large model weights (such as the fine-tuned DistilBERT directory and Keras LSTM `.keras` files) and intermediate tokenized datasets are stored on Google Drive and are **not tracked in this Git repository**.
 
 ### 1. Clone the Repository
 ```bash
@@ -79,17 +110,17 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Notebook Walkthrough
-Launch Jupyter or Google Colab and open:
+### 3. Running the Notebook
+Open the notebook in Google Colab (recommended for GPU support during DistilBERT inference) or a local Jupyter environment:
 ```bash
 jupyter notebook Phishing_Detection_Cascade.ipynb
 ```
 
 ---
 
-## ⚡ API Quickstart
+## ⚡ FastAPI Inference Prototype
 
-The pipeline can be served directly using FastAPI:
+The notebook defines and tests a FastAPI service prototype:
 
 ```python
 from fastapi import FastAPI
@@ -102,24 +133,23 @@ class EmailRequest(BaseModel):
 
 @app.post("/predict")
 def predict(request: EmailRequest):
-    # Runs the Strategy C cascade (LR -> DistilBERT fallback)
-    result = analyze_email(request.email)
-    return result
+    return analyze_email(request.email)
 ```
 
-**Sample API Response:**
+**Sample Request & Response:**
 ```json
+// Input:
+{
+  "email": "URGENT: Your bank account will be suspended today. Verify your account immediately."
+}
+
+// Output:
 {
   "prediction": "PHISHING",
-  "action": "BLOCK",
+  "action": "QUARANTINE",
   "model_used": "Logistic Regression",
-  "lr_confidence": 99.42
+  "lr_confidence": 99.42,
+  "quarantine_file": "/content/drive/MyDrive/phishing_quarantine/quarantine_20261022_120000.json"
 }
 ```
-*(If escalated to DistilBERT or quarantined, `"model_used": "DistilBERT"` and `"quarantine_file"` paths are included in the payload).*
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+*(When an ambiguous legitimate email triggers DistilBERT, `"model_used": "DistilBERT"` and `"bert_confidence"` are also included).*
