@@ -1,0 +1,31 @@
+# Python virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter / IPython checkpoint
+.ipynb_checkpoints/
+
+# macOS files
+.DS_Store
+
+# Large datasets and model checkpoints / exports
+*.parquet
+*.npz
+*.npy
+*.pkl
+*.keras
+*.h5
+*.pt
+*.bin
+bert_results/
+quarantine/
+
+# Environment variables & secrets
+.env
